@@ -104,60 +104,114 @@ err:
 	buf[i] = L'\0';
 }
 
+static void waitx(EFI_SYSTEM_TABLE *systab)
+{
+    /* Now wait for a keystroke before continuing, otherwise your
+       message will flash off the screen before you see it.
+
+       First, we need to empty the console input buffer to flush
+       out any keystrokes entered before this point */
+    EFI_SYSTEM_TABLE *ST = systab;
+    EFI_STATUS Status;
+    EFI_INPUT_KEY Key;
+    Status = ST->ConIn->Reset(ST->ConIn, FALSE);
+    if (EFI_ERROR(Status))
+        return;
+
+    /* Now wait until a key becomes available.  This is a simple
+       polling implementation.  You could try and use the WaitForKey
+       event instead if you like */
+    while ((Status = ST->ConIn->ReadKeyStroke(ST->ConIn, &Key)) == EFI_NOT_READY) ;
+    return;
+}
+
 EFI_STATUS EFIAPI
 efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 {
-	void *tmp;
+	void *tmp=NULL;
 	uint32_t entry;
 	UINTN readsize;
-	int boot_error;
+	int boot_error, index;
 	EFI_STATUS status;
 	entry_func_t *entry_func;
 	EFI_FILE_HANDLE file, file2;
 	static CHAR16 file_path[4096];
+    EFI_FILE_PROTOCOL* root = NULL;
 	EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *fileio;
 	EFI_LOADED_IMAGE_PROTOCOL *loaded_image;
 	EFI_PHYSICAL_ADDRESS paddr = 0x40000000;
+
+    EFI_BOOT_SERVICES* bs = systab->BootServices;
+    EFI_HANDLE* handles = NULL;
+    UINTN handleCount = 0;
+
+    status = bs->LocateHandleBuffer(ByProtocol,
+                                   &FileSystemProtocol,
+                                   NULL,
+                                   &handleCount,
+                                   &handles);
+	if (EFI_ERROR (status)) {
+		print (systab, L"LocateHandleBuffer ", status);
+		goto wait_key; //return status;
+	}
+    print (systab, L"LocateHandleBuffer count ", handleCount);
+    EFI_SIMPLE_FILE_SYSTEM_PROTOCOL* fs = NULL;
+    for (index = 0; index < (int)handleCount; ++ index)
+    {
+
+        status = bs->HandleProtocol(
+            handles[index],
+            &FileSystemProtocol,
+            (void**)&fs);
+        if (EFI_ERROR (status)) {
+            print (systab, L"FileSystemProtocol_1 ", status);
+            goto wait_key; //return status;
+        }
+        break;
+    }
 
 	status = systab->BootServices->
 		HandleProtocol (image, &LoadedImageProtocol, &tmp);
 	if (EFI_ERROR (status)) {
 		print (systab, L"LoadedImageProtocol ", status);
-		return status;
+		goto wait_key; //return status;
 	}
 	loaded_image = tmp;
+    /*
+    void *fs=NULL;
 	status = systab->BootServices->
 		HandleProtocol (loaded_image->DeviceHandle,
-				&FileSystemProtocol, &tmp);
+				&FileSystemProtocol, &fs);
 	if (EFI_ERROR (status)) {
 		print (systab, L"FileSystemProtocol ", status);
-		return status;
+		goto wait_key; //return status;
 	}
 	create_file_path (loaded_image->FilePath, L"bitvisor.elf", file_path,
 			  sizeof file_path / sizeof file_path[0]);
-	fileio = tmp;
-	status = fileio->OpenVolume (fileio, &file);
+              */
+	fileio = fs;
+	status = fileio->OpenVolume (fileio, &root);
 	if (EFI_ERROR (status)) {
 		print (systab, L"OpenVolume ", status);
-		return status;
+		goto wait_key; //return status;
 	}
-	status = file->Open (file, &file2, file_path, EFI_FILE_MODE_READ, 0);
+	status = root->Open (root, &file2, L"EFI\\BOOT\\bitvisor.elf", EFI_FILE_MODE_READ, 0);
 	if (EFI_ERROR (status)) {
 		print (systab, L"Open ", status);
-		return status;
+		goto wait_key; //return status;
 	}
 	status = systab->BootServices->AllocatePages (AllocateMaxAddress,
 						      EfiLoaderData, 0x10,
 						      &paddr);
 	if (EFI_ERROR (status)) {
 		print (systab, L"AllocatePages ", status);
-		return status;
+		goto wait_key; //return status;
 	}
 	readsize = 0x10000;
 	status = file2->Read (file2, &readsize, (void *)paddr);
 	if (EFI_ERROR (status)) {
 		print (systab, L"Read ", status);
-		return status;
+		goto wait_key; //return status;
 	}
 	entry = *(uint32_t *)(paddr + 0x18);
 	entry_func = (entry_func_t *)(paddr + (entry & 0xFFFF));
@@ -168,11 +222,19 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 	status = systab->BootServices->FreePages (paddr, 0x10);
 	if (EFI_ERROR (status)) {
 		print (systab, L"FreePages ", status);
-		return status;
+		goto wait_key; //return status;
 	}
 	file2->Close (file2);
 	file->Close (file);
+    waitx(systab);
+
 	if (!boot_error)
 		return EFI_LOAD_ERROR;
+    print (systab, L"chainloader sucess ", 0);
+    waitx(systab);
 	return EFI_SUCCESS;
+
+wait_key:
+    waitx(systab);
+    return status;
 }
