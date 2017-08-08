@@ -580,6 +580,15 @@ void pci_register_driver(struct pci_driver *driver)
 	return;
 }
 
+void
+pci_register_intr_callback (int (*callback) (void *data, int num), void *data)
+{
+	if (!callback || !data)
+		return;
+
+	exint_pass_intr_register_callback (callback, data);
+}
+
 /* ------------------------------------------------------------------------------
    PCI configuration registers access
  ------------------------------------------------------------------------------ */
@@ -825,8 +834,18 @@ new_device:
 			goto found;
 		}
 	}
-	if (!wr)
-		memset (buf, 0xFF, len);
+	/* Passthrough accesses to PCI configuration space of
+	 * non-existent devices.  The pci_config_data_handler()
+	 * function returns CORE_IO_RET_DEFAULT in this case.  This
+	 * behavior is apparently required for EFI variable access on
+	 * iMac (Retina 5K, 27-inch, Late 2015) and MacBook (Retina,
+	 * 12-inch, Early 2016).  This function can return 0 to make
+	 * access passthrough, but mapmem/unmapmem is called after
+	 * returning 0.  Use the pci_readwrite_config_mmio() function
+	 * here to avoid mapmem for performance reason. */
+	pci_readwrite_config_mmio (d, wr, addr.s.bus_no, addr.s.dev_no,
+				   addr.s.func_no, addr.s.reg_offset, len,
+				   buf);
 	return 1;
 found:
 	if (dev->bridge.yes && wr)
@@ -958,8 +977,9 @@ pci_driver_option_get_int (char *option, char **e, int base)
 	if (p == option)
 		panic ("pci_driver_option_get_int: invalid value %s",
 		       option);
-	if (ret < -0x80000000)
-		ret = -0x80000000;
+	/* -0x7FFFFFFF - 1 is signed, -0x80000000 is unsigned */
+	if (ret < -0x7FFFFFFF - 1)
+		ret = -0x7FFFFFFF - 1;
 	if (ret > 0x7FFFFFFF)
 		ret = 0x7FFFFFFF;
 	if (e)

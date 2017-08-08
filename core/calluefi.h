@@ -30,6 +30,8 @@
 #ifndef _CORE_CALLUEFI_H
 #define _CORE_CALLUEFI_H
 
+#include "types.h"
+
 extern u8 uefi_memory_map_data[16384];
 extern ulong uefi_memory_map_size;
 extern ulong uefi_memory_map_descsize;
@@ -39,6 +41,8 @@ int call_uefi_allocate_pages (int type, int memtype, u64 npages, u64 *phys);
 int call_uefi_free_pages (u64 phys, u64 npages);
 u32 call_uefi_getkey (void);
 void call_uefi_putchar (unsigned char c);
+void call_uefi_disconnect_pcidev_driver (ulong seg, ulong bus, ulong dev,
+					 ulong func);
 void copy_uefi_bootcode (void);
 
 #endif

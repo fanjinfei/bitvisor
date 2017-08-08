@@ -1,4 +1,13 @@
 .hg
 .hgignore
 .hgtags
+.config
+*.map
 *.o
+*.d
+*.bin
+*.s
+*.a
+.depends
+.objects
+.flags

@@ -739,7 +739,7 @@ new_usb_device(struct usb_host *usbhc,
 	void usbhid_init_handle (struct usb_host *, struct usb_device *);
 
 	/* get a device address */
-	devadr = (u8)get_wValue_from_setup(urb->shadow->buffers) & 0x7fU;
+	devadr = usbhc->init_op->dev_addr (urb);
 
 	dprintft(1, "SetAddress(%d) found.\n", devadr);
 
@@ -780,6 +780,9 @@ new_usb_device(struct usb_host *usbhc,
 	dprintf(1, ": USB device connect.\n");
 
 	dev->bStatus = UD_STATUS_ADDRESSED;
+
+	if (usbhc->init_op->add_hc_specific_data)
+		usbhc->init_op->add_hc_specific_data (usbhc, dev, urb);
 
 	spinlock_unlock(&dev->lock_dev);
 
@@ -916,6 +919,7 @@ new_usb_device(struct usb_host *usbhc,
 
 /**
  * @brief intiate device monitor 
+ * Use this function when HC is not responsible for SET_ADDRESS() command.
  */
 void 
 usb_init_device_monitor(struct usb_host *host)
@@ -937,6 +941,28 @@ usb_init_device_monitor(struct usb_host *host)
 	spinlock_unlock(&host->lock_hk);
 
 	return;
+}
+
+/*
+ * Use this function when HC is responsible for SET_ADDRESS(). This should be
+ * called after SET_ADDRESS() is complete.
+ */
+void
+usb_init_device (struct usb_host *host, u8 usb_addr,
+		 int (*before_init) (struct usb_host *usbhc,
+				     struct usb_request_block *urb,
+				     void *arg),
+		 int (*after_init) (struct usb_host *host,
+				    struct usb_request_block *urb,
+				    void *arg))
+{
+	spinlock_lock (&host->lock_hk);
+	usb_hook_register_ex (host, USB_HOOK_REQUEST,
+			      USB_HOOK_MATCH_ADDR | USB_HOOK_MATCH_ENDP,
+			      usb_addr, 0, NULL,
+			      new_usb_device, NULL, NULL,
+			      before_init, after_init, 1, 1);
+	spinlock_unlock (&host->lock_hk);
 }
 
 void *

@@ -650,6 +650,11 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 	if (!hub)
 		return USB_HOOK_PASS;
 
+	if (urb->status == URB_STATUS_ERRORS) {
+		ASSERT (urb->actlen == 0);
+		return USB_HOOK_PASS;
+	}
+
 	spinlock_lock(&mscdev->lock);
 	mscunit = mscdev->unit[mscdev->lun];
 
@@ -1005,6 +1010,7 @@ usbmsc_init_bulkmon(struct usb_host *usbhc,
 	handler->private_data = mscdev;
 	dev->handle = handler;
 	
+	dev->ctrl_by_host = 1;
 	spinlock_unlock(&mscdev->lock);
 
 	/* register a hook for GetMaxLun */

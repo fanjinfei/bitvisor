@@ -326,7 +326,7 @@ send_physnic_sub (struct data2 *d2, UINT num_packets, void **packets,
 	tail = (void *)((u8 *)d2->d1[0].map + off2 + 0x18);
 	h = *head;
 	t = *tail;
-	if (h == 0xFFFFFFFF)
+	if (h >= NUM_OF_TDESC || t >= NUM_OF_TDESC)
 		return;
 	for (i = 0; i < num_packets; i++) {
 		nt = t + 1;
@@ -1288,6 +1288,20 @@ pro1000_msi (void *data, int num)
 }
 
 static void
+pro1000_enable_dma_and_memory (struct pci_device *pci_device)
+{
+	pci_config_address_t addr = pci_device->address;
+	u32 command_orig, command;
+
+	addr.reg_no = 1;
+	command_orig = pci_read_config_data32 (addr, 0);
+	command = command_orig | PCI_CONFIG_COMMAND_MEMENABLE |
+		PCI_CONFIG_COMMAND_BUSMASTER;
+	if (command != command_orig)
+		pci_write_config_data32 (addr, 0, command);
+}
+
+static void
 seize_pro1000 (struct data2 *d2)
 {
 	/* Disable interrupts */
@@ -1419,8 +1433,9 @@ static void
 pro1000_intr_set (void *param)
 {
 	struct data2 *d2 = param;
+	volatile u32 *ics = (void *)(u8 *)d2->d1[0].map + 0xC8;
 
-	*(u32 *)(void *)((u8 *)d2->d1[0].map + 0xC8) |= 0x1; /* interrupt */
+	*ics = 1 << 7 | 1 << 4;	/* interrupt */
 }
 
 static void
@@ -1507,6 +1522,7 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 	}
 	d->disable = false;
 	d2->d1 = d;
+	pro1000_enable_dma_and_memory (pci_device);
 	get_macaddr (d2, d2->macaddr);
 	pci_device->host = d;
 	pci_device->driver->options.use_base_address_mask_emulation = 1;
@@ -1537,6 +1553,11 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 				      NULL);
 	}
 	if (d2->seize) {
+		pci_system_disconnect (pci_device);
+		/* Enabling bus master and memory space again because
+		 * they might be disabled after disconnecting firmware
+		 * drivers. */
+		pro1000_enable_dma_and_memory (pci_device);
 		seize_pro1000 (d2);
 		net_start (d2->nethandle);
 	}
@@ -1815,7 +1836,8 @@ static struct pci_driver pro1000_driver = {
 			  "8086:1f40|"
 			  "8086:1f41|"
 			  "8086:1f45|"
-			  "8086:15b7",
+			  "8086:15b7|"
+ 			  "8086:1570",
 	.new		= pro1000_new,	
 	.config_read	= pro1000_config_read,
 	.config_write	= pro1000_config_write,

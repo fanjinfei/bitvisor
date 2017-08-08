@@ -423,7 +423,7 @@ int iodom_init(struct domain *dom)
 	sagaw = cap_sagaw(iommu->cap);
 	
 	if ((1UL << (agaw % 32) & sagaw)==0) {
-                printf("Unsupported AGAW value.\n");
+                printf("Unsupported AGAW value. %x %x %x\n", iommu->cap, agaw, sagaw);
                 return -ENODEV;
 	}
 	

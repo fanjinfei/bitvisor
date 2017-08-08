@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2009 Igel Co., Ltd
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,12 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __CORE_EXINT_PASS_H
-#define __CORE_EXINT_PASS_H
+#ifndef _CORE_DISCONNECT_H
+#define _CORE_DISCONNECT_H
 
-int exint_pass_intr_alloc (int (*callback) (void *data, int num), void *data);
-void exint_pass_intr_free (int num);
-int exint_pass_intr_register_callback (int (*callback) (void *data, int num),
-				       void *data);
+#include <core/disconnect.h>
 
 #endif

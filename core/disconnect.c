@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2009 Igel Co., Ltd
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,12 +27,20 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-typedef long int intptr_t;
-typedef unsigned long long uint64_t;
-typedef unsigned int       uint32_t;
-typedef unsigned short     uint16_t;
-typedef unsigned char      uint8_t;
-typedef long long          int64_t;
-typedef int                int32_t;
-typedef short              int16_t;
-typedef char               int8_t;
+#include "calluefi.h"
+#include "cpu.h"
+#include "disconnect.h"
+#include "pcpu.h"
+#include "uefi.h"
+
+void
+disconnect_pcidev_driver (ulong seg, ulong bus, ulong dev, ulong func)
+{
+	if (!uefi_booted)
+		return;
+	if (!currentcpu_available () || currentcpu->pass_vm_created)
+		return;
+	if (get_cpu_id ())
+		return;
+	call_uefi_disconnect_pcidev_driver (seg, bus, dev, func);
+}
