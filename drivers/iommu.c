@@ -381,19 +381,57 @@ static struct iommu *alloc_iommu(struct acpi_drhd_u *drhd)
 	return iommu;
 }
 
-static int gaw_to_agaw(int gaw) { // Just mentioned in chapter 3.4.2 in VT-d spec.
-	int agaw, r;
-	
-	r = (gaw-12) % 9;
-	if (r==0) {
-		agaw = gaw;
-	} else {
-		agaw = gaw+9-r;
+#define LEVEL_STRIDE		IOPT_LEVEL_STRIDE
+#define MAX_AGAW_WIDTH 64
+
+static inline int agaw_to_level(int agaw)
+{
+	return agaw + 2;
+}
+
+#define min_t(type, x, y) ({			\
+	type __min1 = (x);			\
+	type __min2 = (y);			\
+	__min1 < __min2 ? __min1: __min2; })
+
+static inline int agaw_to_width(int agaw)
+{
+	return min_t(int, 30 + agaw * LEVEL_STRIDE, MAX_AGAW_WIDTH);
+}
+
+#define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
+static inline int width_to_agaw(int width)
+{
+	return DIV_ROUND_UP(width - 30, LEVEL_STRIDE);
+}
+
+#ifdef CONFIG_64BIT
+#define BITS_PER_LONG 64
+#else
+#define BITS_PER_LONG 32
+#endif /* CONFIG_64BIT */
+#define BIT_WORD(nr)         ((nr) / BITS_PER_LONG)
+
+/**
+ * test_bit - Determine whether a bit is set
+ * @nr: bit number to test
+ * @addr: Address to start counting from
+ */
+static inline int test_bit(int nr, const volatile unsigned long *addr)
+{
+        return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+}
+
+static int __iommu_calculate_agaw(u64 cap, int max_gaw)
+{
+	unsigned long sagaw;
+	int agaw = -1;
+	sagaw = cap_sagaw(cap);
+	for (agaw = width_to_agaw(max_gaw);
+	     agaw >= 0; agaw--) {
+		if (test_bit(agaw, &sagaw))
+			break;
 	}
-	if (agaw > 64) {
-		agaw = 64;
-	}
-	
 	return agaw;
 }
 
@@ -417,17 +455,7 @@ int iodom_init(struct domain *dom)
 	}
 	
 	/* determine AGAW */
-	guest_width = cap_mgaw(iommu->cap);
-	adjust_width = gaw_to_agaw(guest_width);
-	agaw = ((adjust_width-12)/IOPT_LEVEL_STRIDE)-2;
-	sagaw = cap_sagaw(iommu->cap);
-	
-	if ((1UL << (agaw % 32) & sagaw)==0) {
-                printf("Unsupported AGAW value. %x %x %x\n", iommu->cap, agaw, sagaw);
-                return -ENODEV;
-	}
-	
-	dom->agaw = agaw;
+	dom->agaw = __iommu_calculate_agaw(iommu->cap, MAX_AGAW_WIDTH);;
 	
 	spinlock_init(&dom->iopt_lock);
 	
