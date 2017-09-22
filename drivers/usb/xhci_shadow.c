@@ -969,7 +969,7 @@ free_tr_segments (struct xhci_slot_meta *h_slot_meta,
 	memset (g_ep_tr, 0, XHCI_EP_TR_NBYTES);
 }
 
-static void
+void
 alloc_slot (struct xhci_host *host, uint slot_id)
 {
 	struct xhci_dev_ctx *h_dev_ctx;
@@ -1658,7 +1658,7 @@ after_init_device (struct usb_host *usbhc,
 	return 0;
 }
 
-static void
+void
 setup_usb_dev (struct xhci_host *host, uint slot_id, uint cmd_idx)
 {
 	struct xhci_dev_ctx *h_dev_ctx = host->dev_ctx[slot_id];

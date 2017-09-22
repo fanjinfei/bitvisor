@@ -1680,6 +1680,60 @@ xhci_new (struct pci_device *pci_device)
 	return;
 }
 
+/*
+  with host/guest dev_ctx built, traverse guest ctx to clone it in host ctx,
+	since guest already have usb_device setup_up and end_point readily configured.
+  virtual	 	<--> 	phys_t
+  g_data.dev_ctx_array		g_data.dev_ctx_addr
+  dev_ctx_array			dev_ctx_addr
+
+  g_data.dev_ctx[i]     <-->    ? memap_gphys(g_data.dev_ctx_array)
+  dev_ctx[i](sz=slots+1) <-->   dev_ctx_array[i]
+
+*/
+void alloc_slot (struct xhci_host *host, uint slot_id);
+void setup_usb_dev (struct xhci_host *host, uint slot_id, uint cmd_idx);
+static void traverse_g_dev_ctx(struct xhci_data *xhci_data)
+{
+	struct xhci_host *host = xhci_data->host;
+	struct xhci_regs *regs = host->regs;
+	u8 *reg;
+	uint slots = xhci_get_max_slots (host);
+	uint slots_plus_one = slots + 1; /* For scratchpad or index 0 */
+	uint slot_id;
+
+	for (slot_id = 1; slot_id <= slots; slot_id++) { //reverse clone_dev_ctx_to_gyest()
+		/* Map guest's device context */
+		phys_t dev_ctx_addr = host->g_data.dev_ctx_array[slot_id];
+		if (!dev_ctx_addr) continue; //guest dev ctx slot not enabled
+
+		struct xhci_dev_ctx *g_dev_ctx;
+		g_dev_ctx = (struct xhci_dev_ctx *)
+			    mapmem_gphys (dev_ctx_addr,
+					  XHCI_DEV_CTX_NBYTES,
+					  MAPMEM_WRITE);
+
+		host->g_data.dev_ctx[slot_id] = g_dev_ctx;
+		alloc_slot(host, slot_id); //enable host
+
+		struct xhci_dev_ctx *h_dev_ctx = host->dev_ctx[slot_id];
+
+		h_dev_ctx->ctx = g_dev_ctx->ctx; //copy usb addr
+		setup_usb_dev(host, slot_id, 0); //setup device
+
+		uint ep_no;
+		for (ep_no = 0; ep_no < MAX_EP; ep_no++) {
+			//reverse clone_ep_to_guest (host, h_dev_ctx, g_dev_ctx, slot_id, ep_no);
+			u8 ep_state = XHCI_EP_CTX_EP_STATE (g_dev_ctx->ep[ep_no]);
+			if (ep_state == XHCI_EP_STATE_DISABLE) {
+				return;
+			}
+			h_dev_ctx->ep[ep_no] = g_dev_ctx->ep[ep_no];
+		}
+		xhci_hand_eps_back_to_guest(host, slot_id);
+	}
+}
+
 /*State:
     regs/offset, mmio hook are setup, erst_data/g_data[] initialized(not filled)
   To do:
@@ -1742,6 +1796,7 @@ static int preOS_loader_setup(struct xhci_data *xhci_data)
 	host->g_data.dev_ctx_addr = buf64;
 	create_h_dev_ctx(host, host->g_data.dev_ctx_addr, NULL);
 
+	traverse_g_dev_ctx(xhci_data); //because boot loader has configured device end point
 
 	return 0;
 }
