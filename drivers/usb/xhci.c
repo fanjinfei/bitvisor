@@ -44,6 +44,8 @@
 static const char driver_name[] = "xhci";
 static const char driver_longname[] = "xHCI para pass-through driver 0.1";
 
+static int preOS_loader_setup(struct xhci_data *xhci_data);
+
 typedef u64 (*data_handler) (struct xhci_host *host,
 			     u64 data,
 			     void *handler_data);
@@ -74,7 +76,7 @@ fill_write_info (struct write_info *wr_info, u64 data, u64 len,
 
 static u8
 handle_reg64 (struct xhci_host *host, u8 reg_offset,
-	      struct write_info *wr_info)
+	      struct write_info *wr_info) /*FIXME: what if OS write addr_hi first? this implementation is not good, though works for Linux*/
 {
 	u8 valid = 1;
 
@@ -734,7 +736,8 @@ patch_er_dq_ptr (struct xhci_host *host,
 	}
 
 	if (!found) {
-		dprintft (0, "Fatal error in patch_er_dq_ptr()\n");
+		printf("PANIC Patch_dq_ptr not found");
+		//dprintft (0, "Fatal error in patch_er_dq_ptr()\n");
 	}
 
 end:
@@ -872,7 +875,10 @@ xhci_rts_reg_write (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 		if (field_offset != RTS_IMAN_OFFSET &&
 		    field_offset != RTS_IMOD_OFFSET &&
 		    field_offset != RTS_ERDP_OFFSET &&
-		    field_offset != RTS_ERDP_OFFSET + 4) {
+		    field_offset != RTS_ERDP_OFFSET + 4 &&
+		    field_offset != RTS_ERSTSZ_OFFSET &&
+		    field_offset != RTS_ERSTBA_OFFSET &&
+		    field_offset != RTS_ERSTBA_OFFSET + 4) {
 			dprintft (1, "Ignore invalid write. Offset: 0x%X\n",
 				  field_offset);
 			valid = 0;
@@ -1119,6 +1125,22 @@ range_check (u64 acc_start, u64 acc_end, u64 area_start, u64 area_end)
 	range_check (acc_start, acc_end,			\
 		     regs->db_start,  regs->db_end)
 
+static void
+passthrough_mmio (void *data, phys_t gphys, void *buf, uint len, u32 flags, bool wr)
+{
+	struct xhci_data *xhci_data = (struct xhci_data *)data;
+	struct xhci_host *host	    = xhci_data->host;
+	struct xhci_regs *regs	    = host->regs;
+
+	phys_t field_offset = gphys - regs->cap_start;
+	u8 *reg = (u8 *)(regs->cap_reg + field_offset);
+
+	if (wr)
+		memcpy (reg, buf, len);
+	else
+		memcpy (buf, reg, len);
+}
+
 static int
 xhci_reg_handler (void *data, phys_t gphys, bool wr, void *buf,
 		  uint len, u32 flags)
@@ -1138,8 +1160,19 @@ xhci_reg_handler (void *data, phys_t gphys, bool wr, void *buf,
 		if (!wr) {
 			xhci_cap_reg_read (data, gphys, buf, len, flags);
 		}
+		if (!xhci_data->host->guestOS_started){
+			xhci_data->host->guestOS_started = 1;
+			pci_register_intr_callback (xhci_sync_state, data);
+		}
+		return 1;
+	}
 
-	} else if (RANGE_CHECK_OPR) {
+	if (!xhci_data->host->guestOS_started){
+		passthrough_mmio(xhci_data, gphys, buf, len, flags, wr);
+		return 1;
+	}
+
+	if (RANGE_CHECK_OPR) {
 
 		if (wr) {
 			xhci_opr_reg_write (data, gphys, buf, len, flags);
@@ -1215,26 +1248,37 @@ end:
 static void
 unreghook (struct xhci_data *xhci_data)
 {
-	if (xhci_data->enabled) {
+	if (xhci_data->enabled && xhci_data->handler) {
 		mmio_unregister (xhci_data->handler);
 		unmapmem (xhci_data->host->regs->reg_map,
 			  xhci_data->host->regs->map_len);
 
-		xhci_data->enabled = 0;
 	}
+	xhci_data->enabled = 0;
+
 }
 
 static void
-reghook (struct xhci_data *xhci_data, struct pci_bar_info *bar)
+reghook (struct xhci_data *xhci_data, struct pci_bar_info *bar, int handler)
 {
 	if (bar->type == PCI_BAR_INFO_TYPE_NONE ||
 	    bar->type == PCI_BAR_INFO_TYPE_IO) {
 		return;
 	}
 
-	unreghook (xhci_data);
+	if (handler) {
+		if (xhci_data->handler) mmio_unregister (xhci_data->handler);
+			xhci_data->handler = mmio_register (bar->base, bar->len,
+					xhci_reg_handler, xhci_data);
 
-	xhci_data->enabled = 0;
+		if (!xhci_data->handler) {
+			printf ("PANIC: Cannot mmio_register() xHC registers %llu %u.\n", bar->base, bar->len);
+			//panic ("Cannot mmio_register() xHC registers.");
+		}
+		return;
+	}
+
+	unreghook (xhci_data);
 
 	struct xhci_regs *regs = xhci_data->host->regs;
 
@@ -1244,13 +1288,6 @@ reghook (struct xhci_data *xhci_data, struct pci_bar_info *bar)
 
 	if (!regs->reg_map) {
 		panic ("Cannot mapmem_gphys() xHC registers.");
-	}
-
-	xhci_data->handler = mmio_register (bar->base, bar->len,
-					    xhci_reg_handler, xhci_data);
-
-	if (!xhci_data->handler) {
-		panic ("Cannot mmio_register() xHC registers.");
 	}
 
 	xhci_data->enabled = 1;
@@ -1288,7 +1325,7 @@ xhci_config_write (struct pci_device *pci_device, u8 iosize, u16 offset,
 					    data);
 
 	if (i == 0 && host->regs->iobase != bar_info.base) {
-		reghook (xhci_data, &bar_info);
+		reghook (xhci_data, &bar_info, false);
 
 		printf ("Setting up new XHCI handlers done\n");
 	}
@@ -1521,7 +1558,7 @@ xhci_new (struct pci_device *pci_device)
 
 	xhci_data->enabled = 0;
 	xhci_data->host = host;
-	reghook (xhci_data, &bar_info);
+	reghook (xhci_data, &bar_info, false);
 
 	pci_device->host = xhci_data;
 
@@ -1632,12 +1669,82 @@ xhci_new (struct pci_device *pci_device)
 
 	usbhub_init_handle (host->usb_host);
 
-	pci_register_intr_callback (xhci_sync_state, xhci_data);
-
+	if (1) {
+		reghook (xhci_data, &bar_info, true); //full hook
+		host->guestOS_started = 0; //passthrough hook handle
+	}else{
+		pci_register_intr_callback (xhci_sync_state, xhci_data);
+		preOS_loader_setup(xhci_data);
+	}
 	printf ("xHCI controller initialized\n");
 	return;
 }
 
+/*State:
+    regs/offset, mmio hook are setup, erst_data/g_data[] initialized(not filled)
+  To do:
+    shadow: device context base address array(DCBAA) -> device context(Ctx) -> transfer ring(TR)
+
+  Hook will handle data buffer (referred by TR)
+
+*/
+static int preOS_loader_setup(struct xhci_data *xhci_data)
+{
+	struct xhci_host *host = xhci_data->host;
+	struct xhci_regs *regs = host->regs;
+	u8 *reg;
+	struct xhci_erst_data *g_erst_data, *h_erst_data;
+	struct erst_data erst_data;
+
+	int i;
+	u64 buf64 = 0;
+	// if uefi_boot, or read the CMD_RUN bit
+	host->run = 1;
+
+	//read guest_erst, then make shadow
+	for (i=0; i<host->max_intrs-1; i++){
+		g_erst_data = &host->g_data.erst_data[i];
+		h_erst_data = &host->erst_data[i];
+		erst_data.h_erst_data = h_erst_data;
+		erst_data.g_erst_data = g_erst_data;
+
+		u32 *erstsz_reg;
+		u64 *erst_reg, *erdp_reg;
+
+		erstsz_reg = (u32 *)(INTR_REG (regs, i) + RTS_ERSTSZ_OFFSET);
+		erdp_reg   = (u64 *)(INTR_REG (regs, i) + RTS_ERDP_OFFSET);
+		erst_reg   = (u64 *)(INTR_REG (regs, i) + RTS_ERSTBA_OFFSET);
+
+		g_erst_data->erst_addr = *erst_reg;
+		g_erst_data->erst_size = *erstsz_reg;
+		g_erst_data->erst_dq_ptr = *erdp_reg;
+
+	}
+	take_control_erst(xhci_data);
+
+	/* opr reg section start*/
+
+	//Configure
+	reg = regs->opr_reg + OPR_CONFIG_OFFSET;
+	buf64 = 0;
+	memcpy(&buf64, reg, 4);
+	host->max_slots_enabled = buf64;
+
+	// command ring control
+	reg = regs->opr_reg + OPR_CRCTRL_OFFSET;
+	memcpy(&buf64, reg, 8);
+	host->g_data.cmd_ring = buf64;
+	create_h_cmd_ring(host, host->g_data.cmd_ring, NULL);
+
+	//Dev Ctx base address array pointer
+	reg = regs->opr_reg + OPR_DCBAAP_OFFSET;
+	memcpy(&buf64, reg, 8);
+	host->g_data.dev_ctx_addr = buf64;
+	create_h_dev_ctx(host, host->g_data.dev_ctx_addr, NULL);
+
+
+	return 0;
+}
 
 static struct pci_driver xhci_driver = {
 	.name		= driver_name,

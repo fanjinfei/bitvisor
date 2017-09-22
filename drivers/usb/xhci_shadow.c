@@ -103,7 +103,8 @@ xhci_create_shadow_erst (struct xhci_erst_data *h_erst_data,
 			 * It is possible that We have to determine xHC is not
 			 * using the ring segment we are going to free.
 			 */
-			panic ("ERST shrink happens, still not support.");
+			printf ("PANIC: ERST shrink happens, still not support.\n");
+//			panic ("ERST shrink happens, still not support.");
 		}
 	}
 
@@ -168,7 +169,8 @@ xhci_create_shadow_erst (struct xhci_erst_data *h_erst_data,
 	}
 
 	if (!found) {
-		panic ("Error in create_shadow_erst().");
+		printf ("PANIC: Error in create_shadow_erst().\n");
+//		panic ("Error in create_shadow_erst().");
 	}
 }
 
@@ -875,7 +877,6 @@ xhci_update_er_and_dev_ctx (struct xhci_host *host)
 	clone_er_trbs_to_guest (host);
 
 	uint slots = xhci_get_max_slots (host);
-
 	uint slot_id;
 	for (slot_id = 1; slot_id <= slots; slot_id++) {
 		if (host->dev_ctx[slot_id]) {
@@ -1398,6 +1399,7 @@ take_ctrl_tr_seg (struct usb_host *usbhc,
 		struct usb_device *dev = get_device_by_port (usbhc, hub_port);
 
 		uint p_slot_id = xhci_get_slot_id_from_usb_device (dev);
+		if (!dev) return;
 
 		struct xhci_slot_meta *p_slot_meta;
 		p_slot_meta = &host->slot_meta[p_slot_id];
@@ -1498,6 +1500,7 @@ return_tr_seg (struct usb_host *usbhc,
 
 	if (hub_port) {
 		struct usb_device *dev = get_device_by_port (usbhc, hub_port);
+		if (!dev) return;
 
 		uint p_slot_id = xhci_get_slot_id_from_usb_device (dev);
 

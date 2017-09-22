@@ -144,7 +144,7 @@ struct config_data config = {
 		.tty_x540 = 0,
 		.tty_ieee1394 = 0,
 		.driver = {
-			.pci = "",
+			.pci = "driver=xhci",
 		},
 		.iccard = {
 			.enable = 0,

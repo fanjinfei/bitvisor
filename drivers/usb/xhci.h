@@ -30,7 +30,7 @@
 #ifndef _XHCI_H
 #define _XHCI_H
 
-#define DEBUG_LEVEL 1
+#define DEBUG_LEVEL 15
 
 #define REG_DEBUG_LEVEL 3
 #define CMD_DEBUG_LEVEL 1
@@ -148,13 +148,13 @@ zalloc (uint nbytes)
 #define USBCMD_HCRST  (0x1 <<  1)
 #define USBCMD_INTE   (0x1 <<  2)
 #define USBCMD_HSEE   (0x1 <<  3)
-#define USBCMD_LHCRST (0x1 <<  8)
-#define USBCMD_CSS    (0x1 <<  9)
-#define USBCMD_CRS    (0x1 << 10)
-#define USBCMD_EWE    (0x1 << 11)
-#define USBCMD_EU3S   (0x1 << 12)
-#define USBCMD_SPE    (0x1 << 13)
-#define USBCMD_CME    (0x1 << 14)
+#define USBCMD_LHCRST (0x1 <<  7)
+#define USBCMD_CSS    (0x1 <<  8)
+#define USBCMD_CRS    (0x1 << 9)
+#define USBCMD_EWE    (0x1 << 10)
+#define USBCMD_EU3S   (0x1 << 11)
+#define USBCMD_SPE    (0x1 << 13) /*what is this?*/
+#define USBCMD_CME    (0x1 << 14) /*what is this?*/
 
 /* USBSTS mask */
 #define USBSTS_HSE  (0x1 << 2)
@@ -630,6 +630,7 @@ struct xhci_host {
 	struct xhci_regs *regs;
 
 	u8  run;
+	u8 guestOS_started;
 
 	/* Parse All Events flag, necessary for URB completion check */
 	u8  pae;
