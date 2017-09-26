@@ -12,6 +12,7 @@ CFLAGS += -Ivpn
 subdirs-$(CONFIG_ATA_DRIVER) += ata
 subdirs-$(CONFIG_USB_DRIVER) += usb
 subdirs-$(CONFIG_NET_DRIVER) += net
+subdirs-$(CONFIG_GPU_DRIVER) += gpu
 objs-1 += core.o dmar.o ieee1394.o iommu.o pci_conceal.o pci_core.o
 objs-1 += pci_debug.o pci_init.o pci_match.o pci_match_compat.o security.o
 objs-$(CONFIG_LOG_TO_IEEE1394) += ieee1394log.o

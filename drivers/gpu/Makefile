@@ -1,0 +1,5 @@
+CONSTANTS-$(CONFIG_VTD_TRANS) += -DVTD_TRANS
+
+CFLAGS += -Idrivers
+
+objs-1 += i915.o
