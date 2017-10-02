@@ -297,6 +297,7 @@ struct ahci_data {
 	LIST2_DEFINE_HEAD (ahci_cmd_list, struct ahci_command_list, list);
 	bool ahci_cmd_thread;
 	u32 idp_index, idp_offset, idp_config;
+	int guestOS_started;
 };
 
 static void ahci_ae_bit_changed (struct ahci_data *ad);
@@ -1013,10 +1014,11 @@ mmhandler2 (struct ahci_data *ad, u32 offset, bool wr, u32 *buf32, uint len,
 	int port_num, port_off;
 	int r = 0, i;
 
-	if (ad->not_ahci) {
+	if (ad->not_ahci || !ad->guestOS_started) {
 		ahci_readwrite (ad, offset, wr, buf32, len);
 		return;
 	}
+
 	/* 64bit access support */
 	if (len == 8) {
 		len = 4;
@@ -1827,6 +1829,9 @@ ahci_config_write (void *ahci_data, struct pci_device *pci_device,
 	}
 	i = pci_get_modifying_bar_info (pci_device, &bar_info, iosize, offset,
 					data);
+	if (!ad->guestOS_started)
+		ad->guestOS_started = 1;
+
 	if (i >= 0) {
 		if (i == 5)
 			reghook (&ad->ahci_mem, 5, 0, &bar_info,
