@@ -530,7 +530,8 @@ shadow_data:
 		mscunit->lba += n_blocks;
 
 		spinlock_unlock(&mscdev->lock);
-		return USB_HOOK_PASS;
+		//skip write because it is handled by VMM cache, otherwise the cmd is never complete processed by interrupts.
+		return USB_HOOK_DISCARD;
 
 	case 0xb6: /* SET STREAMING (For Vista CD format) */
 	case 0x55: /* MODE SELECT (For setting the device param to CD ) */

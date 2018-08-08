@@ -158,11 +158,117 @@ storage_set_keys (struct storage_device *storage, struct storage_init *init)
 	}
 	storage->keynum = keyindex;
 }
+static int used_cache;
+static int cache_sz = 1024*1024; // 512M = 1024K sectors
+static u64* _cache_list=NULL; //FIXME: should be per device; lba->index, sz=cache_sz*2*u64 (lba:offset pair)
+static u8* _cache=NULL; //hold data
+//FIXME: need a spinlock
+
+static int 
+_init_cache(struct storage_device *storage)
+{
+    int sector_size = 512;
+    if (_cache !=NULL) return 0;
+    _cache_list = (u64*) alloc(sizeof(u64)*2*cache_sz);
+    _cache = (u8*) alloc(sector_size*cache_sz);
+    return 0;
+}
+
+// lba -> _cache_list[:used_cache]=>offset -> _cache; by-sect
+static u64 
+_find_cache(struct storage_device *storage, lba_t lba)
+{
+    int sector_size = 512;
+    int l =0, r = used_cache-1;
+    while (l<=r) {
+        int m = (l+r)/2;
+        u64* plba = _cache_list+2*m;
+        if (*plba < lba)
+            l = m + 1;
+        else if (*plba > lba)
+            r = m -1;
+        else
+            return *(plba+1); //offset
+    }
+    return -1;
+}
+
+static u8* 
+_read_cache(struct storage_device *storage, lba_t lba)
+{
+    int sector_size = 512;
+    u64 offset = _find_cache(storage, lba);
+    return (offset>0)?_cache+offset:-1;
+}
+
+static u8* 
+_write_cache(struct storage_device *storage, lba_t lba)
+{
+}
+
+static u8* 
+_insert_cache_list(struct storage_device *storage, lba_t lba)
+{
+    int sector_size = 512;
+    int l =0, r = used_cache-1;
+    u64 *pos = NULL;
+    while (l<=r) { //insert
+        int m = (l+r)/2;
+        u64* plba = _cache_list+2*m;
+        if (*plba < lba)
+            l = m + 1;
+        else if (*plba > lba)
+            r = m -1;
+        else
+            pos = plba;
+    }
+    if (used_cache==0 || pos != NULL) {
+        pos = _cache_list;
+    } else if (r<=l) {
+        u64* plba = _cache_list+2*l;
+        pos = (lba > *plba)?(plba+2):(plba);
+        for (u64 *p=_cache_list + 2*used_cache -1; p>=pos; p--){ //right shift; careful not to use memcpy
+            *(p+2) = *p;
+        }
+    } else { //error
+        return -1;
+    }
+    
+    *pos = lba;
+    *(pos+1) = used_cache;
+    used_cache++;
+    return 0;
+}
+
+int
+storage_handle_sectors_cache (struct storage_device *storage,
+			 struct storage_access *access, u8 *src, u8 *dst)
+{
+	int i, sub_count;
+	unsigned long long int sub_count2;
+	lba_t lba = access->lba;
+	count_t	count = access->count, size;
+	int sector_size = access->sector_size;
+
+    if (access->rw == STORAGE_READ) //return if cache-hit directly  else HD, 
+
+    	for (i = 0; i<count; i++) { //replace real read with cache
+    	}
+    else { //write cache instead of HD
+        //FIXME: to skip HD write, it should be inside dev driver instead of hook function?
+    	for (i = 0; i<count; i++) {
+    	}
+    }
+	if (count > 0 && dst != src)
+		memcpy(dst, src, count * sector_size);
+	return 0;
+}
 
 int
 storage_handle_sectors (struct storage_device *storage,
 			 struct storage_access *access, u8 *src, u8 *dst)
 {
+    return storage_handle_sectors_cache(storage, access, src, dst);
 	int i, sub_count;
 	unsigned long long int sub_count2;
 	lba_t lba = access->lba;

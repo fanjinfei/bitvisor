@@ -853,6 +853,9 @@ ahci_cmd_prehook (struct ahci_data *ad, struct ahci_port *port,
 	storage_handle_sectors (port->storage_device, &access,
 				port->my[cmdhdr_index].dmabuf,
 				port->my[cmdhdr_index].dmabuf);
+	//skip write because it is handled by VMM cache, otherwise the cmd is never complete processed by interrupts.
+	// OR by set the number of sectors = 0. ??working??
+	port->my[cmdhdr_index].dmabuf_nsec = 0;
 }
 
 static void
